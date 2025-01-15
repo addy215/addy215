@@ -1,0 +1,29 @@
+# 忽略 Windows 系统文件
+Thumbs.db
+Desktop.ini
+
+# 忽略 AppData 等系统文件夹
+AppData/
+Application Data/
+Cookies/
+Documents/
+My Music/
+My Pictures/
+My Videos/
+Local Settings/
+Recent/
+Templates/
+
+# 忽略 .gitconfig 和其他配置文件
+.gitconfig
+
+# 忽略 Python 编译文件
+*.pyc
+*.pyo
+__pycache__/
+
+# 忽略日志文件
+*.log
+
+# 忽略其他临时文件
+*.swp
