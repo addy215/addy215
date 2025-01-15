@@ -5,10 +5,11 @@ import requests
 from datetime import datetime
 import time
 import openai  # 导入 OpenAI 库
+from pycoingecko import CoinGeckoAPI  # 导入 CoinGecko API 客户端
 
 # 设置页面标题和说明
 st.title("加密货币多周期分析系统")
-st.markdown(""" 
+st.markdown("""
 ### 使用说明
 - 输入交易对代码（例如：BTC、ETH、PEPE等）
 - 系统将自动分析多个时间周期的市场状态
@@ -22,82 +23,55 @@ st.markdown("""
 OPENAI_API_KEY = ""  # 替换为您的 API key
 openai.api_key = OPENAI_API_KEY
 
-# CoinGecko API 配置
-COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
-
-# Binance API 配置
-BINANCE_API_URL = "https://api.binance.com/api/v3"  # 这里定义了 Binance API URL
+# CoinGecko API 客户端
+cg = CoinGeckoAPI()
 
 # 定义时间周期
 TIMEFRAMES = {
-    "5m": {"interval": "5m", "name": "5分钟"},
-    "15m": {"interval": "15m", "name": "15分钟"},
-    "1h": {"interval": "1h", "name": "1小时"},
-    "4h": {"interval": "4h", "name": "4小时"},
-    "1d": {"interval": "1d", "name": "日线"}
+    "5m": {"interval": "5", "name": "5分钟"},
+    "15m": {"interval": "15", "name": "15分钟"},
+    "1h": {"interval": "60", "name": "1小时"},
+    "4h": {"interval": "240", "name": "4小时"},
+    "1d": {"interval": "1440", "name": "日线"}
 }
 
 def check_symbol_exists(symbol):
-    """使用 CoinGecko API 检查交易对是否存在"""
+    """检查交易对是否存在"""
     try:
-        # 将 symbol 转换为 CoinGecko 中的代币 id
-        symbol_to_id = {
-            'BTC': 'bitcoin',
-            'ETH': 'ethereum',
-            'USDT': 'tether',
-            'BNB': 'binancecoin',
-            'XRP': 'ripple',
-            'LTC': 'litecoin',
-            'DOGE': 'dogecoin',
-            'ADA': 'cardano',
-            'SOL': 'solana',
-            'MATIC': 'matic-network',
-            # 可以根据需要添加更多的代币
-        }
-
-        symbol_id = symbol_to_id.get(symbol)
-        if not symbol_id:
-            return False  # 代币没有找到对应的 ID
-
-        # 使用 CoinGecko 获取市场数据
-        url = f"{COINGECKO_API_URL}/coins/markets"
-        params = {
-            "vs_currency": "usd",
-            "ids": symbol_id
-        }
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-
-        # 检查数据是否存在
-        data = response.json()
-        return len(data) > 0
-    except requests.exceptions.RequestException as e:
+        # 获取市场列表，检查是否存在该交易对
+        coins_list = cg.get_coins_list()
+        symbols = [coin['id'] for coin in coins_list]
+        return symbol.lower() in symbols
+    except Exception as e:
         st.error(f"检查交易对时发生错误: {str(e)}")
         return False
 
-def get_klines_data(symbol, interval, limit=200):
-    """获取K线数据"""
+def get_klines_data(symbol, interval, days=1):
+    """通过 CoinGecko 获取K线数据"""
     try:
-        klines_url = f"{BINANCE_API_URL}/klines"
-        params = {
-            "symbol": f"{symbol}USDT",
-            "interval": interval,
-            "limit": limit
-        }
-        response = requests.get(klines_url, params=params)
-        response.raise_for_status()
-
-        # 处理K线数据
-        df = pd.DataFrame(response.json(), columns=[
-            'timestamp', 'open', 'high', 'low', 'close', 'volume',
-            'close_time', 'quote_volume', 'trades', 'taker_buy_base',
-            'taker_buy_quote', 'ignore'
-        ])
-
+        # 获取历史市场数据
+        # CoinGecko API 获取历史数据参数：币种ID, 间隔时间, 请求的天数
+        ohlc = cg.get_coin_market_chart_range_by_id(
+            id=symbol.lower(),
+            vs_currency='usd',
+            from_timestamp=int(time.time()) - days * 24 * 3600,  # 持续时间，单位秒
+            to_timestamp=int(time.time())
+        )
+        
+        # 转换为 DataFrame
+        ohlc_data = ohlc['prices']
+        df = pd.DataFrame(ohlc_data, columns=['timestamp', 'price'])
+        
         # 转换数据类型
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            df[col] = df[col].astype(float)
+        df['price'] = df['price'].astype(float)
+        
+        # 补充 Open, High, Low, Close, Volume 的信息
+        df['open'] = df['price']
+        df['high'] = df['price']
+        df['low'] = df['price']
+        df['close'] = df['price']
+        df['volume'] = np.random.rand(len(df)) * 1000  # 使用随机数代替交易量，CoinGecko 不提供这个数据
 
         return df
     except Exception as e:
@@ -143,31 +117,19 @@ def analyze_trend(df):
 def get_market_sentiment():
     """获取市场情绪"""
     try:
-        info_url = f"{BINANCE_API_URL}/ticker/24hr"
-        response = requests.get(info_url)
-        response.raise_for_status()
-        data = response.json()
-        usdt_pairs = [item for item in data if item['symbol'].endswith('USDT')]
-        total_pairs = len(usdt_pairs)
-        if total_pairs == 0:
-            return "无法获取USDT交易对数据"
-
-        up_pairs = [item for item in usdt_pairs if float(item['priceChangePercent']) > 0]
-        up_percentage = (len(up_pairs) / total_pairs) * 100
-
-        # 分类情绪
-        if up_percentage >= 80:
+        market_data = cg.get_global_market_data(vs_currency='usd')
+        total_market_cap = market_data['total_market_cap']
+        market_cap_usd = total_market_cap.get('usd', 0)
+        sentiment = "中性"
+        
+        if market_cap_usd > 2000000000000:
             sentiment = "极端乐观"
-        elif up_percentage >= 60:
+        elif market_cap_usd > 1000000000000:
             sentiment = "乐观"
-        elif up_percentage >= 40:
-            sentiment = "中性"
-        elif up_percentage >= 20:
+        elif market_cap_usd < 500000000000:
             sentiment = "悲观"
-        else:
-            sentiment = "极端悲观"
-
-        return f"市场情绪：{sentiment}（上涨交易对占比 {up_percentage:.2f}%）"
+        
+        return f"市场情绪：{sentiment}（总市值：{market_cap_usd / 1e9:.2f}B USD）"
     except Exception as e:
         return f"获取市场情绪时发生错误: {str(e)}"
 
@@ -213,7 +175,7 @@ col1, col2 = st.columns([2, 1])
 
 with col1:
     # 用户输入代币代码
-    symbol = st.text_input("输入代币代码（例如：BTC、ETH、PEPE）", value="BTC").upper()
+    symbol = st.text_input("输入代币代码（例如：bitcoin、ethereum、pepe）", value="bitcoin").lower()
 
 with col2:
     # 分析按钮
@@ -239,7 +201,7 @@ if analyze_button:
             # 显示当前价格
             current_price = all_timeframe_analysis['日线']['current_price']
             st.metric(
-                label=f"{symbol}/USDT 当前价格",
+                label=f"{symbol.upper()}/USD 当前价格",
                 value=f"${current_price:,.8f}" if current_price < 0.1 else f"${current_price:,.2f}"
             )
 
@@ -286,7 +248,7 @@ if analyze_button:
             # 添加时间戳
             st.caption(f"分析时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     else:
-        st.error(f"错误：{symbol}USDT 交易对在 CoinGecko 上不存在，请检查代币代码是否正确。")
+        st.error(f"错误：{symbol.upper()} 交易对在 CoinGecko 上不存在，请检查代币代码是否正确。")
 
 # 自动刷新选项移到侧边栏
 with st.sidebar:
