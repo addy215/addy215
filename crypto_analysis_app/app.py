@@ -23,7 +23,7 @@ OPENAI_API_KEY = ""  # 替换为您的 API key
 openai.api_key = OPENAI_API_KEY
 
 # Binance API 端点
-BINANCE_API_URL = "https://data-api.binance.vision"
+BINANCE_API_URL = "https://api4.binance.com"
 
 # 定义时间周期
 TIMEFRAMES = {
