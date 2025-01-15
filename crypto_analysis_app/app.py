@@ -37,17 +37,18 @@ TIMEFRAMES = {
 def check_symbol_exists(symbol):
     """检查交易对是否存在"""
     try:
-        # 修正 API URL
-        info_url = f"{BINANCE_API_URL}/exchangeInfo"
+        # 使用另一个 API 接口进行检查
+        info_url = f"{BINANCE_API_URL}/ticker/24hr"
         response = requests.get(info_url)
         response.raise_for_status()
         
-        # 检查交易对是否存在
-        symbols = [s['symbol'] for s in response.json()['symbols']]
+        # 获取所有的 USDT 交易对
+        symbols = [s['symbol'] for s in response.json()]
         return f"{symbol}USDT" in symbols
     except requests.exceptions.RequestException as e:
         st.error(f"检查交易对时发生错误: {str(e)}")
         return False
+
 
 def get_klines_data(symbol, interval, limit=200):
     """获取K线数据"""
