@@ -21,7 +21,7 @@ st.markdown("""
 # 内置 OpenAI API 配置
 OPENAI_API_KEY = ""  # 替换为您的 API key
 client = OpenAI(
-    api_key="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",
+    api_key = os.getenv('OPENAI_API_KEY')
     base_url="https://api.tu-zi.com/v1"
 )
 
