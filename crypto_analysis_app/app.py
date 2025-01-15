@@ -37,12 +37,15 @@ TIMEFRAMES = {
 def check_symbol_exists(symbol):
     """检查交易对是否存在"""
     try:
-        info_url = f"{BINANCE_API_URL}"
+        # 修正 API URL
+        info_url = f"{BINANCE_API_URL}/exchangeInfo"
         response = requests.get(info_url)
         response.raise_for_status()
+        
+        # 检查交易对是否存在
         symbols = [s['symbol'] for s in response.json()['symbols']]
         return f"{symbol}USDT" in symbols
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         st.error(f"检查交易对时发生错误: {str(e)}")
         return False
 
