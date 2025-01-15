@@ -4,3 +4,4 @@ streamlit
 requests
 pandas
 numpy
+pycoingecko
