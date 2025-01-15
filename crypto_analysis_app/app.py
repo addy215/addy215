@@ -25,6 +25,9 @@ openai.api_key = OPENAI_API_KEY
 # CoinGecko API 配置
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
 
+# Binance API 配置
+BINANCE_API_URL = "https://api.binance.com/api/v3"  # 这里定义了 Binance API URL
+
 # 定义时间周期
 TIMEFRAMES = {
     "5m": {"interval": "5m", "name": "5分钟"},
