@@ -22,7 +22,7 @@ st.markdown("""
 OPENAI_API_KEY = ""  # 替换为您的 API key
 openai.api_key = OPENAI_API_KEY
 
-# CoinGecko API 端点
+# CoinGecko API 配置
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
 
 # 定义时间周期
@@ -37,11 +37,30 @@ TIMEFRAMES = {
 def check_symbol_exists(symbol):
     """使用 CoinGecko API 检查交易对是否存在"""
     try:
+        # 将 symbol 转换为 CoinGecko 中的代币 id
+        symbol_to_id = {
+            'BTC': 'bitcoin',
+            'ETH': 'ethereum',
+            'USDT': 'tether',
+            'BNB': 'binancecoin',
+            'XRP': 'ripple',
+            'LTC': 'litecoin',
+            'DOGE': 'dogecoin',
+            'ADA': 'cardano',
+            'SOL': 'solana',
+            'MATIC': 'matic-network',
+            # 可以根据需要添加更多的代币
+        }
+
+        symbol_id = symbol_to_id.get(symbol)
+        if not symbol_id:
+            return False  # 代币没有找到对应的 ID
+
         # 使用 CoinGecko 获取市场数据
         url = f"{COINGECKO_API_URL}/coins/markets"
         params = {
             "vs_currency": "usd",
-            "ids": symbol.lower()
+            "ids": symbol_id
         }
         response = requests.get(url, params=params)
         response.raise_for_status()
@@ -56,26 +75,26 @@ def check_symbol_exists(symbol):
 def get_klines_data(symbol, interval, limit=200):
     """获取K线数据"""
     try:
-        url = f"https://api.coingecko.com/api/v3/coins/{symbol}/market_chart"
+        klines_url = f"{BINANCE_API_URL}/klines"
         params = {
-            "vs_currency": "usd",
-            "days": limit,
-            "interval": interval
+            "symbol": f"{symbol}USDT",
+            "interval": interval,
+            "limit": limit
         }
-        response = requests.get(url, params=params)
+        response = requests.get(klines_url, params=params)
         response.raise_for_status()
 
         # 处理K线数据
-        data = response.json()
-        if "prices" not in data:
-            return None
+        df = pd.DataFrame(response.json(), columns=[
+            'timestamp', 'open', 'high', 'low', 'close', 'volume',
+            'close_time', 'quote_volume', 'trades', 'taker_buy_base',
+            'taker_buy_quote', 'ignore'
+        ])
 
-        df = pd.DataFrame(data['prices'], columns=['timestamp', 'close'])
+        # 转换数据类型
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df['open'] = df['close']
-        df['high'] = df['close']
-        df['low'] = df['close']
-        df['volume'] = 0  # 由于没有交易量数据，设置为0
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            df[col] = df[col].astype(float)
 
         return df
     except Exception as e:
@@ -121,14 +140,17 @@ def analyze_trend(df):
 def get_market_sentiment():
     """获取市场情绪"""
     try:
-        url = f"{COINGECKO_API_URL}/global"
-        response = requests.get(url)
+        info_url = f"{BINANCE_API_URL}/ticker/24hr"
+        response = requests.get(info_url)
         response.raise_for_status()
         data = response.json()
-        
-        # 获取市场情绪数据
-        market_data = data.get("data", {})
-        up_percentage = market_data.get("up_percentage", 50)
+        usdt_pairs = [item for item in data if item['symbol'].endswith('USDT')]
+        total_pairs = len(usdt_pairs)
+        if total_pairs == 0:
+            return "无法获取USDT交易对数据"
+
+        up_pairs = [item for item in usdt_pairs if float(item['priceChangePercent']) > 0]
+        up_percentage = (len(up_pairs) / total_pairs) * 100
 
         # 分类情绪
         if up_percentage >= 80:
