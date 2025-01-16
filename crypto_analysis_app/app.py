@@ -42,11 +42,15 @@ def check_symbol_exists(symbol):
     try:
         response = requests.get(f"{OKEX_API_URL}/public/instruments", params={"instType": "SPOT"})
         response.raise_for_status()
-        symbols = [item['instId'] for item in response.json()['data']]
+        symbols = {item['instId'] for item in response.json().get('data', [])}
         return f"{symbol}-USDT" in symbols
+    except requests.exceptions.RequestException as e:
+        st.error(f"网络错误: {e}")
+    except KeyError:
+        st.error("响应数据格式错误，无法解析交易对列表。")
     except Exception as e:
-        st.error(f"检查交易对时发生错误: {str(e)}")
-        return False
+        st.error(f"发生未知错误: {e}")
+    return False
 
 def get_klines_data(symbol, granularity, limit=200):
     """获取K线数据"""
