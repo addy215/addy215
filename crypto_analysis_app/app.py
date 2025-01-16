@@ -7,7 +7,7 @@ import time
 from openai import OpenAI
 
 # 设置页面标题和说明
-st.title("加密货币多周期分析系统")
+st.title("多周期分析系统")
 st.markdown("""
 ### 使用说明
 - 输入交易对代码（例如：BTC、ETH、PEPE等）
@@ -25,8 +25,8 @@ client = OpenAI(
     base_url="https://api.tu-zi.com/v1"
 )
 
-# Binance API 端点
-BINANCE_API_URL = "https://api.binance.com/api/v3"
+# OKEX API 端点
+OKEX_API_URL = "GET /api/v5/public/instruments"
 
 # 定义时间周期
 TIMEFRAMES = {
@@ -40,7 +40,7 @@ TIMEFRAMES = {
 def check_symbol_exists(symbol):
     """检查交易对是否存在"""
     try:
-        info_url = f"{BINANCE_API_URL}/exchangeInfo"
+        info_url = f"{OKEX_API_URL}/exchangeInfo"
         response = requests.get(info_url)
         response.raise_for_status()
         symbols = [s['symbol'] for s in response.json()['symbols']]
@@ -52,7 +52,7 @@ def check_symbol_exists(symbol):
 def get_klines_data(symbol, interval, limit=200):
     """获取K线数据"""
     try:
-        klines_url = f"{BINANCE_API_URL}/klines"
+        klines_url = f"{OKEX_API_URL}/klines"
         params = {
             "symbol": f"{symbol}USDT",
             "interval": interval,
@@ -117,7 +117,7 @@ def analyze_trend(df):
 def get_market_sentiment():
     """获取市场情绪"""
     try:
-        info_url = f"{BINANCE_API_URL}/ticker/24hr"
+        info_url = f"{OKEX_API_URL}/ticker/24hr"
         response = requests.get(info_url)
         response.raise_for_status()
         data = response.json()
