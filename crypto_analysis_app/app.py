@@ -5,6 +5,9 @@ import requests
 from datetime import datetime
 import time
 from openai import OpenAI
+import os
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
 
 # 设置页面标题和说明
 st.title("加密货币多周期分析系统")
@@ -19,7 +22,7 @@ st.markdown("""
 """)
 
 # 内置 OpenAI API 配置
-OPENAI_API_KEY = "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"  # 替换为您的 API key
+OPENAI_API_KEY = "your-api-key"  # 替换为您的 API key
 client = OpenAI(
     api_key=OPENAI_API_KEY,
     base_url="https://api.tu-zi.com/v1"
