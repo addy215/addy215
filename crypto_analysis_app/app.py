@@ -5,8 +5,9 @@ import requests
 from datetime import datetime
 import time
 from openai import OpenAI
-import os
-openai.api_key = os.getenv("OPENAI_API_KEY")
+import openai
+openai.api_key = "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"
+
 
 
 # 设置页面标题和说明
