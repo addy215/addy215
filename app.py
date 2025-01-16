@@ -26,7 +26,7 @@ client = OpenAI(
 )
 
 # Binance API 端点
-BINANCE_API_URL = "https://api.binance.com/api/v3"
+BINANCE_API_URL = "https://api2.binance.com/api/v3"
 
 # 定义时间周期
 TIMEFRAMES = {
