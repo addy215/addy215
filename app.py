@@ -9,7 +9,7 @@ from openai import OpenAI
 st.title("加密货币多周期分析系统")
 st.markdown("""
 ### 使用说明
-- 输入交易对代码（支持币安所有交易对）
+- 选择交易对代码（支持主流交易对）
 - 系统将自动分析多个时间周期的市场状态
 - 提供专业的趋势分析和预测
 - 分析整体市场情绪
@@ -25,7 +25,7 @@ client = OpenAI(
 )
 
 # Binance API 端点
-BINANCE_API_URL = "https://api.binance.com/api/v3"
+BINANCE_API_URL = "https://api.binance.us/api/v3"
 
 # 定义时间周期
 TIMEFRAMES = {
@@ -39,23 +39,34 @@ TIMEFRAMES = {
 def get_all_trading_pairs():
     """获取所有可用的交易对"""
     try:
-        info_url = f"{BINANCE_API_URL}/exchangeInfo"
-        response = requests.get(info_url)
-        response.raise_for_status()
-        symbols = [s['baseAsset'] for s in response.json()['symbols'] if s['quoteAsset'] == 'USDT']
-        return sorted(list(set(symbols)))  # 去重并排序
+        # 预设一些常用的交易对
+        default_pairs = ["BTC", "ETH", "BNB", "XRP", "ADA", "DOGE", "MATIC", "SOL", "DOT", "SHIB", 
+                        "LTC", "AVAX", "LINK", "UNI", "ATOM", "ETC", "FIL", "APE", "ALGO", "NEAR",
+                        "PEPE", "ARB", "IMX", "INJ", "FET", "GALA", "SAND", "MANA", "SEI", "SUI"]
+        
+        # 尝试从 API 获取完整列表
+        try:
+            info_url = f"{BINANCE_API_URL}/exchangeInfo"
+            response = requests.get(info_url, timeout=10)
+            response.raise_for_status()
+            symbols = [s['baseAsset'] for s in response.json()['symbols'] if s['quoteAsset'] == 'USDT']
+            return sorted(list(set(symbols)))  # 去重并排序
+        except Exception as e:
+            st.warning("使用预设交易对列表")
+            return sorted(default_pairs)
+            
     except Exception as e:
         st.error(f"获取交易对列表时发生错误: {str(e)}")
-        return []
+        return ["BTC"]  # 至少返回 BTC
 
 def check_symbol_exists(symbol):
     """检查交易对是否存在"""
     try:
-        info_url = f"{BINANCE_API_URL}/exchangeInfo"
-        response = requests.get(info_url)
-        response.raise_for_status()
-        symbols = [s['symbol'] for s in response.json()['symbols']]
-        return f"{symbol}USDT" in symbols
+        # 首先尝试直接获取价格来验证交易对是否存在
+        price_url = f"{BINANCE_API_URL}/ticker/price"
+        params = {"symbol": f"{symbol}USDT"}
+        response = requests.get(price_url, params=params)
+        return response.status_code == 200
     except Exception as e:
         st.error(f"检查交易对时发生错误: {str(e)}")
         return False
@@ -338,8 +349,4 @@ if analyze_button:
 # 在侧边栏添加注意事项
 with st.sidebar:
     st.subheader("注意事项")
-    st.write("请确保您的分析仅供参考，不构成投资建议。加密货币市场风险较大，请谨慎决策。")
-
-# 添加页脚
-st.markdown("---")
-st.caption("免责声明：本分析仅供参考，不构成投资建议。加密货币市场风险较大，请谨慎决策。")
+    st.write("请确保您的分析仅供参考，不构成投资建议。加密货币市场风险较大，请谨
