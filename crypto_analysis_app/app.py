@@ -4,8 +4,7 @@ import numpy as np
 import requests
 from datetime import datetime
 import time
-import openai  # 导入 OpenAI 库
-from pycoingecko import CoinGeckoAPI  # 导入 CoinGecko API 客户端
+from openai import OpenAI
 
 # 设置页面标题和说明
 st.title("加密货币多周期分析系统")
@@ -19,59 +18,57 @@ st.markdown("""
 - 生成多种风格的分析总结推文
 """)
 
-# 设置 OpenAI API 配置
+# 内置 OpenAI API 配置
 OPENAI_API_KEY = ""  # 替换为您的 API key
-openai.api_key = OPENAI_API_KEY
+client = OpenAI(
+    api_key=OPENAI_API_KEY,
+    base_url="https://api.tu-zi.com/v1"
+)
 
-# CoinGecko API 客户端
-cg = CoinGeckoAPI()
+# OKEx API 端点
+OKEX_API_URL = "https://www.okex.com/api/v5"
 
 # 定义时间周期
 TIMEFRAMES = {
-    "5m": {"interval": "5", "name": "5分钟"},
-    "15m": {"interval": "15", "name": "15分钟"},
-    "1h": {"interval": "60", "name": "1小时"},
-    "4h": {"interval": "240", "name": "4小时"},
-    "1d": {"interval": "1440", "name": "日线"}
+    "5m": {"granularity": "300", "name": "5分钟"},
+    "15m": {"granularity": "900", "name": "15分钟"},
+    "1h": {"granularity": "3600", "name": "1小时"},
+    "4h": {"granularity": "14400", "name": "4小时"},
+    "1d": {"granularity": "86400", "name": "日线"}
 }
 
 def check_symbol_exists(symbol):
     """检查交易对是否存在"""
     try:
-        # 获取市场列表，检查是否存在该交易对
-        coins_list = cg.get_coins_list()
-        symbols = [coin['id'] for coin in coins_list]
-        return symbol.lower() in symbols
+        response = requests.get(f"{OKEX_API_URL}/public/instruments", params={"instType": "SPOT"})
+        response.raise_for_status()
+        symbols = [item['instId'] for item in response.json()['data']]
+        return f"{symbol}-USDT" in symbols
     except Exception as e:
         st.error(f"检查交易对时发生错误: {str(e)}")
         return False
 
-def get_klines_data(symbol, interval, days=1):
-    """通过 CoinGecko 获取K线数据"""
+def get_klines_data(symbol, granularity, limit=200):
+    """获取K线数据"""
     try:
-        # 获取历史市场数据
-        # CoinGecko API 获取历史数据参数：币种ID, 间隔时间, 请求的天数
-        ohlc = cg.get_coin_market_chart_range_by_id(
-            id=symbol.lower(),
-            vs_currency='usd',
-            from_timestamp=int(time.time()) - days * 24 * 3600,  # 持续时间，单位秒
-            to_timestamp=int(time.time())
-        )
-        
-        # 转换为 DataFrame
-        ohlc_data = ohlc['prices']
-        df = pd.DataFrame(ohlc_data, columns=['timestamp', 'price'])
-        
+        params = {
+            "instId": f"{symbol}-USDT",
+            "bar": granularity,
+            "limit": limit
+        }
+        response = requests.get(f"{OKEX_API_URL}/market/candles", params=params)
+        response.raise_for_status()
+
+        # 处理K线数据
+        data = response.json()['data']
+        df = pd.DataFrame(data, columns=[
+            'timestamp', 'open', 'high', 'low', 'close', 'volume', 'quote_volume'
+        ])
+
         # 转换数据类型
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        df['price'] = df['price'].astype(float)
-        
-        # 补充 Open, High, Low, Close, Volume 的信息
-        df['open'] = df['price']
-        df['high'] = df['price']
-        df['low'] = df['price']
-        df['close'] = df['price']
-        df['volume'] = np.random.rand(len(df)) * 1000  # 使用随机数代替交易量，CoinGecko 不提供这个数据
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            df[col] = df[col].astype(float)
 
         return df
     except Exception as e:
@@ -117,21 +114,46 @@ def analyze_trend(df):
 def get_market_sentiment():
     """获取市场情绪"""
     try:
-        market_data = cg.get_global_market_data(vs_currency='usd')
-        total_market_cap = market_data['total_market_cap']
-        market_cap_usd = total_market_cap.get('usd', 0)
-        sentiment = "中性"
-        
-        if market_cap_usd > 2000000000000:
+        response = requests.get(f"{OKEX_API_URL}/market/tickers", params={"instType": "SPOT"})
+        response.raise_for_status()
+        data = response.json()['data']
+        usdt_pairs = [item for item in data if item['instId'].endswith('USDT')]
+        total_pairs = len(usdt_pairs)
+        if total_pairs == 0:
+            return "无法获取USDT交易对数据"
+
+        up_pairs = [item for item in usdt_pairs if float(item['changePct']) > 0]
+        up_percentage = (len(up_pairs) / total_pairs) * 100
+
+        # 分类情绪
+        if up_percentage >= 80:
             sentiment = "极端乐观"
-        elif market_cap_usd > 1000000000000:
+        elif up_percentage >= 60:
             sentiment = "乐观"
-        elif market_cap_usd < 500000000000:
+        elif up_percentage >= 40:
+            sentiment = "中性"
+        elif up_percentage >= 20:
             sentiment = "悲观"
-        
-        return f"市场情绪：{sentiment}（总市值：{market_cap_usd / 1e9:.2f}B USD）"
+        else:
+            sentiment = "极端悲观"
+
+        return f"市场情绪：{sentiment}（上涨交易对占比 {up_percentage:.2f}%）"
     except Exception as e:
         return f"获取市场情绪时发生错误: {str(e)}"
+
+def generate_trading_plan(symbol):
+    """生成交易计划"""
+    try:
+        prompt = f"""
+        请为交易对 {symbol}/USDT 提供一个详细的顺应趋势的交易计划。包括但不限于入场点、止损点、目标价位和资金管理策略。
+        """
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"交易计划生成失败: {str(e)}"
 
 def generate_tweet(symbol, analysis_summary, style):
     """生成推文内容"""
@@ -151,23 +173,66 @@ def generate_tweet(symbol, analysis_summary, style):
         分析总结：
         {analysis_summary}
         """
-        
-        # 调用 OpenAI API
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
-        
-        # 提取推文内容
-        tweet = response['choices'][0]['message']['content'].strip()
-        
+        tweet = response.choices[0].message.content.strip()
         # 确保推文不超过280字符
         if len(tweet) > 280:
             tweet = tweet[:277] + "..."
-        
         return tweet
     except Exception as e:
         return f"推文生成失败: {str(e)}"
+
+def get_ai_analysis(symbol, analysis_data, trading_plan):
+    """获取 AI 分析结果"""
+    try:
+        # 准备多周期分析数据
+        prompt = f"""
+        作为一位专业的加密货币分析师，请基于以下{symbol}的多周期分析数据提供详细的市场报告：
+
+        各周期趋势分析：
+        {analysis_data}
+
+        详细交易计划：
+        {trading_plan}
+
+        请提供以下分析（使用markdown格式）：
+
+        ## 市场综述
+        [在多周期分析框架下的整体判断]
+
+        ## 趋势分析
+        - 短期趋势（5分钟-15分钟）：
+        - 中期趋势（1小时-4小时）：
+        - 长期趋势（日线）：
+        - 趋势协同性分析：
+
+        ## 关键价位
+        - 主要阻力位：
+        - 主要支撑位：
+        - 当前价格位置分析：
+
+        ## 未来目标预测
+        1. 24小时目标：
+        2. 3天目标：
+        3. 7天目标：
+
+        ## 操作建议
+        - 短线操作：
+        - 中线布局：
+        - 风险提示：
+
+        请确保分析专业、客观，并注意不同时间框架的趋势关系。
+        """
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"AI 分析生成失败: {str(e)}"
 
 # 主界面
 # 创建两列布局
@@ -175,7 +240,7 @@ col1, col2 = st.columns([2, 1])
 
 with col1:
     # 用户输入代币代码
-    symbol = st.text_input("输入代币代码（例如：bitcoin、ethereum、pepe）", value="bitcoin").lower()
+    symbol = st.text_input("输入代币代码（例如：BTC、ETH、PEPE）", value="BTC").upper()
 
 with col2:
     # 分析按钮
@@ -192,7 +257,7 @@ if analyze_button:
 
             # 获取各个时间周期的数据并分析
             for tf, info in TIMEFRAMES.items():
-                df = get_klines_data(symbol, info['interval'])
+                df = get_klines_data(symbol, info['granularity'])
                 if df is not None:
                     df = calculate_indicators(df)
                     analysis = analyze_trend(df)
@@ -201,33 +266,48 @@ if analyze_button:
             # 显示当前价格
             current_price = all_timeframe_analysis['日线']['current_price']
             st.metric(
-                label=f"{symbol.upper()}/USD 当前价格",
+                label=f"{symbol}/USDT 当前价格",
                 value=f"${current_price:,.8f}" if current_price < 0.1 else f"${current_price:,.2f}"
             )
 
             # 生成交易计划
-            trading_plan = "请根据市场分析来制定适当的交易计划。"
+            trading_plan = generate_trading_plan(symbol)
 
             # 获取并显示 AI 分析
             st.subheader("多周期分析报告")
-            analysis_summary = f"当前价格: {current_price}, 主要趋势: {all_timeframe_analysis['日线']['ma20_trend']}"
-            st.write(analysis_summary)
+            analysis = get_ai_analysis(symbol, all_timeframe_analysis, trading_plan)
+            st.markdown(analysis)
+
+            # 添加市场情绪
+            market_sentiment = get_market_sentiment()
+            st.markdown("---")
+            st.subheader("整体市场情绪")
+            st.write(market_sentiment)
 
             # 生成推文
+            st.markdown("---")
             st.subheader("多风格推文建议")
 
-            styles = ["女生", "交易员", "分析师", "媒体"]
+            analysis_summary = f"{analysis}\n市场情绪：{market_sentiment}"
+
+            # 定义所有风格
+            styles = {
+                "女生风格": "女生",
+                "交易员风格": "交易员",
+                "分析师风格": "分析师",
+                "媒体风格": "媒体"
+            }
 
             # 创建两列布局来显示推文
             col1, col2 = st.columns(2)
 
             # 生成并显示所有风格的推文
-            for i, style in enumerate(styles):
+            for i, (style_name, style) in enumerate(styles.items()):
                 tweet = generate_tweet(symbol, analysis_summary, style)
                 # 在左列显示前两个风格
                 if i < 2:
                     with col1:
-                        st.subheader(f"📝 {style} 风格")
+                        st.subheader(f"📝 {style_name}")
                         st.text_area(
                             label="",
                             value=tweet,
@@ -237,7 +317,7 @@ if analyze_button:
                 # 在右列显示后两个风格
                 else:
                     with col2:
-                        st.subheader(f"📝 {style} 风格")
+                        st.subheader(f"📝 {style_name}")
                         st.text_area(
                             label="",
                             value=tweet,
@@ -248,7 +328,7 @@ if analyze_button:
             # 添加时间戳
             st.caption(f"分析时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     else:
-        st.error(f"错误：{symbol.upper()} 交易对在 CoinGecko 上不存在，请检查代币代码是否正确。")
+        st.error(f"错误：{symbol}-USDT 交易对在 OKEx 上不存在，请检查代币代码是否正确。")
 
 # 自动刷新选项移到侧边栏
 with st.sidebar:
@@ -265,5 +345,4 @@ with st.sidebar:
     st.write("请确保您的分析仅供参考，不构成投资建议。加密货币市场风险较大，请谨慎决策。")
 
 # 添加页脚
-st.markdown("---")
-st.caption("免责声明：本分析仅供参考，不构成投资建议。加密货币市场风险较大，请谨慎决策。")
+st
