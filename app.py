@@ -18,18 +18,36 @@ st.markdown("""
 - 生成多种风格的分析总结推文
 """)
 
-# 更新的 OpenAI API 配置
-OPENAI_API_KEY = "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"
+# 内置 OpenAI API 配置
+OPENAI_API_KEY = ""  # 替换为您的 API key
 client = OpenAI(
     api_key=OPENAI_API_KEY,
     base_url="https://api.tu-zi.com/v1"
 )
 
-# 修改 Binance API 请求头和参数
-BINANCE_API_URL = "https://api.binance.com/api/v3"
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+# Binance API 端点
+BINANCE_API_URL = "GET/api/v3"
+
+# 定义时间周期
+TIMEFRAMES = {
+    "5m": {"interval": "5m", "name": "5分钟"},
+    "15m": {"interval": "15m", "name": "15分钟"},
+    "1h": {"interval": "1h", "name": "1小时"},
+    "4h": {"interval": "4h", "name": "4小时"},
+    "1d": {"interval": "1d", "name": "日线"}
 }
+
+def check_symbol_exists(symbol):
+    """检查交易对是否存在"""
+    try:
+        info_url = f"{BINANCE_API_URL}/exchangeInfo"
+        response = requests.get(info_url)
+        response.raise_for_status()
+        symbols = [s['symbol'] for s in response.json()['symbols']]
+        return f"{symbol}USDT" in symbols
+    except Exception as e:
+        st.error(f"检查交易对时发生错误: {str(e)}")
+        return False
 
 def get_klines_data(symbol, interval, limit=200):
     """获取K线数据"""
@@ -40,7 +58,7 @@ def get_klines_data(symbol, interval, limit=200):
             "interval": interval,
             "limit": limit
         }
-        response = requests.get(klines_url, headers=HEADERS, params=params, timeout=10)
+        response = requests.get(klines_url, params=params)
         response.raise_for_status()
 
         # 处理K线数据
@@ -56,7 +74,7 @@ def get_klines_data(symbol, interval, limit=200):
             df[col] = df[col].astype(float)
 
         return df
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         st.error(f"获取K线数据时发生错误: {str(e)}")
         return None
 
