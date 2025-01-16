@@ -26,22 +26,10 @@ client = OpenAI(
 )
 
 # 修改 Binance API 请求头和参数
-BINANCE_API_URL = "https://data.binance.com."
+BINANCE_API_URL = "https://api.binance.com/api/v3"
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 }
-
-def check_symbol_exists(symbol):
-    """检查交易对是否存在"""
-    try:
-        info_url = f"{BINANCE_API_URL}/exchangeInfo"
-        response = requests.get(info_url, headers=HEADERS, timeout=10)
-        response.raise_for_status()
-        symbols = [s['symbol'] for s in response.json()['symbols']]
-        return f"{symbol}USDT" in symbols
-    except requests.exceptions.RequestException as e:
-        st.error(f"检查交易对时发生错误: {str(e)}")
-        return False
 
 def get_klines_data(symbol, interval, limit=200):
     """获取K线数据"""
