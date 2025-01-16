@@ -4,6 +4,7 @@ import numpy as np
 import requests
 from datetime import datetime
 import time
+import ccxt
 from openai import OpenAI
 
 # 设置页面标题和说明
@@ -25,9 +26,6 @@ client = OpenAI(
     base_url="https://api.tu-zi.com/v1"
 )
 
-# Binance API 端点
-BINANCE_API_URL = "https://api2.binance.com/api/v3"
-
 # 定义时间周期
 TIMEFRAMES = {
     "5m": {"interval": "5m", "name": "5分钟"},
@@ -40,74 +38,42 @@ TIMEFRAMES = {
 def check_symbol_exists(symbol):
     """检查交易对是否存在"""
     try:
-        response = requests.get(f"{BINANCE_API_URL}/exchangeInfo", timeout=10)
-        response.raise_for_status()  # 检查 HTTP 状态码
-        symbols = [s['symbol'] for s in response.json().get('symbols', [])]
-        return f"{symbol}USDT" in symbols
-    except requests.exceptions.Timeout:
-        st.error("请求超时，请检查网络连接或稍后重试。")
-    except requests.exceptions.RequestException as e:
-        st.error(f"网络请求错误：{e}")
-    except KeyError:
-        st.error("API 返回数据格式错误，无法解析交易对信息。")
-    return False
+        binance = ccxt.binance()
+        markets = binance.load_markets()
+        return f"{symbol}/USDT" in markets
+    except Exception as e:
+        st.error(f"检查交易对时发生错误: {e}")
+        return False
 
 def get_klines_data(symbol, interval, limit=200):
     """获取K线数据"""
     try:
-        params = {
-            "symbol": f"{symbol}USDT",
-            "interval": interval,
-            "limit": limit
-        }
-        response = requests.get(f"{BINANCE_API_URL}/klines", params=params, timeout=10)
-        response.raise_for_status()  # 检查 HTTP 状态码
-
-        # 解析数据并转换为 DataFrame
-        df = pd.DataFrame(response.json(), columns=[
-            'timestamp', 'open', 'high', 'low', 'close', 'volume',
-            'close_time', 'quote_volume', 'trades', 'taker_buy_base',
-            'taker_buy_quote', 'ignore'
-        ])
+        binance = ccxt.binance()
+        ohlcv = binance.fetch_ohlcv(f"{symbol}/USDT", timeframe=interval, limit=limit)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            df[col] = df[col].astype(float)
-
         return df
-    except requests.exceptions.Timeout:
-        st.error("请求超时，请检查网络连接或稍后重试。")
-    except requests.exceptions.RequestException as e:
-        st.error(f"网络请求错误：{e}")
-    except ValueError:
-        st.error("解析 K 线数据时发生错误，请检查 API 返回格式。")
-    return None
+    except Exception as e:
+        st.error(f"获取K线数据时发生错误: {e}")
+        return None
 
 def calculate_indicators(df):
     """计算技术指标"""
-    # 计算MA20
     df['ma20'] = df['close'].rolling(window=20).mean()
-
-    # 计算BOLL指标
     df['boll_mid'] = df['close'].rolling(window=20).mean()
     df['boll_std'] = df['close'].rolling(window=20).std()
     df['boll_up'] = df['boll_mid'] + 2 * df['boll_std']
     df['boll_down'] = df['boll_mid'] - 2 * df['boll_std']
-
-    # 计算MA20趋势
     df['ma20_trend'] = df['ma20'].diff().rolling(window=5).mean()
-
     return df
 
 def analyze_trend(df):
     """分析趋势"""
     current_price = df['close'].iloc[-1]
     ma20_trend = "上升" if df['ma20_trend'].iloc[-1] > 0 else "下降"
-
-    # BOLL带支撑阻力
     boll_up = df['boll_up'].iloc[-1]
     boll_mid = df['boll_mid'].iloc[-1]
     boll_down = df['boll_down'].iloc[-1]
-
     return {
         "current_price": current_price,
         "ma20_trend": ma20_trend,
@@ -117,37 +83,6 @@ def analyze_trend(df):
             "strong_support": boll_down
         }
     }
-
-def get_market_sentiment():
-    """获取市场情绪"""
-    try:
-        response = requests.get(f"{BINANCE_API_URL}/ticker/24hr", timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        usdt_pairs = [item for item in data if item['symbol'].endswith('USDT')]
-        total_pairs = len(usdt_pairs)
-        if total_pairs == 0:
-            return "无法获取USDT交易对数据"
-
-        up_pairs = [item for item in usdt_pairs if float(item['priceChangePercent']) > 0]
-        up_percentage = (len(up_pairs) / total_pairs) * 100
-
-        if up_percentage >= 80:
-            sentiment = "极端乐观"
-        elif up_percentage >= 60:
-            sentiment = "乐观"
-        elif up_percentage >= 40:
-            sentiment = "中性"
-        elif up_percentage >= 20:
-            sentiment = "悲观"
-        else:
-            sentiment = "极端悲观"
-
-        return f"市场情绪：{sentiment}（上涨交易对占比 {up_percentage:.2f}%）"
-    except requests.exceptions.Timeout:
-        return "请求超时，请稍后重试。"
-    except requests.exceptions.RequestException as e:
-        return f"获取市场情绪时发生错误: {e}"
 
 def generate_trading_plan(symbol):
     """生成交易计划"""
@@ -172,9 +107,7 @@ def generate_tweet(symbol, analysis_summary, style):
             "分析师": "以金融分析师的专业语气",
             "媒体": "以媒体报道的客观语气"
         }
-
         style_prompt = style_prompts.get(style, "")
-
         prompt = f"""
         {style_prompt} 请根据以下分析总结，为交易对 {symbol}/USDT 撰写一条简洁且专业的推文，适合发布在推特上。推文应包括当前价格、市场情绪、主要趋势以及操作建议。限制在280个字符以内。
 
@@ -255,7 +188,6 @@ if analyze_button:
     if check_symbol_exists(symbol):
         with st.spinner(f'正在分析 {symbol} 的市场状态...'):
             all_timeframe_analysis = {}
-
             for tf, info in TIMEFRAMES.items():
                 df = get_klines_data(symbol, info['interval'])
                 if df is not None:
@@ -270,30 +202,25 @@ if analyze_button:
             )
 
             trading_plan = generate_trading_plan(symbol)
-
             st.subheader("多周期分析报告")
             analysis = get_ai_analysis(symbol, all_timeframe_analysis, trading_plan)
             st.markdown(analysis)
 
-            market_sentiment = get_market_sentiment()
             st.markdown("---")
             st.subheader("整体市场情绪")
-            st.write(market_sentiment)
+            st.write("市场情绪功能尚未实现。")
 
             st.markdown("---")
             st.subheader("多风格推文建议")
 
-            analysis_summary = f"{analysis}\n市场情绪：{market_sentiment}"
-
+            analysis_summary = f"{analysis}"
             styles = {
                 "女生风格": "女生",
                 "交易员风格": "交易员",
                 "分析师风格": "分析师",
                 "媒体风格": "媒体"
             }
-
             col1, col2 = st.columns(2)
-
             for i, (style_name, style) in enumerate(styles.items()):
                 tweet = generate_tweet(symbol, analysis_summary, style)
                 if i < 2:
